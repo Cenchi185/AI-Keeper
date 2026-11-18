@@ -94,7 +94,7 @@ class AgentTests(unittest.TestCase):
             calls.append(copy.deepcopy(messages))
             if tools:
                 return {'role': 'assistant', 'content': draft}
-            if json_mode:
+            if json_mode and messages[0]['content'].startswith('Validate'):
                 return {'content': json.dumps({'scene': '책상 위에 서류가 놓여 있다.',
                                                'clues': ['허가되지 않은 단서'], 'hp_loss': 12})}
             return {'content': '책상 위의 서류가 눈에 들어옵니다. 무엇을 하시겠습니까?'}
@@ -149,7 +149,7 @@ class ApiTests(PersistenceTests):
         session = game.new_session('테스트')
         game.save(session)
 
-        def fail_after_mutation(loaded, action):
+        def fail_after_mutation(loaded, action, target_id='gm'):
             loaded['state']['hp'] = 0
             loaded['history'].append({'role': 'assistant', 'content': 'not committed'})
             raise ValueError('invalid model response')
@@ -161,14 +161,49 @@ class ApiTests(PersistenceTests):
         self.assertEqual(game.load(session['session_id']), session)
         self.assertFalse(server.LOCK.locked())
 
-    def test_failed_start_does_not_create_a_saved_game(self):
-        with patch.object(server.rag, 'document_count', return_value=1), \
+    def test_start_provides_intro_without_model_or_index(self):
+        with patch.object(server.rag, 'document_count', return_value=0), \
                 patch.object(server, 'run_turn', side_effect=ValueError('invalid response')), \
                 patch.object(server, 'save') as save:
             response = self.client.post('/api/start', headers=self.headers, json={'name': '테스트'})
-        self.assertEqual(response.status_code, 422)
-        save.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('1920', response.json()['reply'])
+        self.assertTrue(response.json()['suggestions'])
+        save.assert_called_once()
         self.assertFalse(server.LOCK.locked())
+
+    def test_help_never_changes_saved_game_or_calls_model(self):
+        session = game.new_session('도움말 테스트')
+        session['turn'] = 7
+        game.save(session)
+        with patch.object(server, 'run_turn') as run, patch.object(server, 'save') as save:
+            response = self.client.post('/api/help', headers=self.headers, json={
+                'session_id': session['session_id'], 'message': '이성 수치가 뭐야?'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['mode'], 'help')
+        self.assertIn(str(session['state']['sanity']), response.json()['reply'])
+        self.assertEqual(game.load(session['session_id']), session)
+        run.assert_not_called()
+        save.assert_not_called()
+
+    def test_help_requires_authentication(self):
+        response = self.client.post('/api/help', json={
+            'session_id': str(uuid.uuid4()), 'message': '도움말'})
+        self.assertEqual(response.status_code, 401)
+
+    def test_legacy_state_gets_display_metadata_without_reset(self):
+        session = game.new_session('기존 조사자')
+        for key in ('occupation', 'background', 'character_source', 'goal', 'max_sanity'):
+            session['state'].pop(key)
+        session['state']['hp'] = 3
+        session['state']['location'] = '이전에 방문한 장소'
+        session['state']['clues'] = ['이미 발견한 단서']
+        game.save(session)
+        loaded = game.load(session['session_id'])['state']
+        self.assertEqual(loaded['hp'], 3)
+        self.assertEqual(loaded['location'], '이전에 방문한 장소')
+        self.assertEqual(loaded['clues'], ['이미 발견한 단서'])
+        self.assertIn('character_source', loaded)
 
     def test_public_save_response_excludes_hidden_history(self):
         session = game.new_session('테스트')

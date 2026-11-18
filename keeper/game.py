@@ -5,6 +5,7 @@ import sqlite3
 import uuid
 from contextlib import closing
 from pathlib import Path
+from .onboarding import upgrade_state
 
 DATA = Path(os.getenv('KEEPER_DATA_DIR', str(Path(__file__).resolve().parents[1] / 'data')))
 
@@ -12,11 +13,11 @@ DATA = Path(os.getenv('KEEPER_DATA_DIR', str(Path(__file__).resolve().parents[1]
 
 def initial_state(name):
     # A deliberately simplified original character, not an official pre-generated sheet.
-    return {'name': name, 'hp': 12, 'max_hp': 12, 'sanity': 60,
+    return upgrade_state({'name': name, 'hp': 12, 'max_hp': 12, 'sanity': 60,
             'location': '의뢰인의 사무실', 'inventory': ['수첩', '연필', '손전등'],
             'clues': [], 'visited': ['의뢰인의 사무실'],
             'skills': {'관찰': 60, '자료조사': 60, '듣기': 50, '설득': 50,
-                       '은밀행동': 40, '회피': 40, '근접전': 40, '행운': 50}}
+                       '은밀행동': 40, '회피': 40, '근접전': 40, '행운': 50}})
 
 
 def roll_check(state, skill, difficulty='regular'):
@@ -65,7 +66,9 @@ def load(session_id):
         row = db.execute('SELECT payload FROM sessions WHERE id=?', (session_id,)).fetchone()
     if row is None:
         raise KeyError('저장된 게임을 찾지 못했습니다.')
-    return json.loads(row[0])
+    session = json.loads(row[0])
+    upgrade_state(session['state'])
+    return session
 
 
 def new_session(name):
