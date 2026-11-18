@@ -81,6 +81,41 @@ class RoutingTests(unittest.TestCase):
                 'session_id': self.session['session_id'], 'message': 'hello', 'target_id': 'client'})
         self.assertEqual(response.status_code, 200)
 
+    def test_gm_handover_action_updates_saved_inventory(self):
+        session_id = self.session['session_id']
+        with patch.object(server, 'run_turn') as generic_turn:
+            response = self.client.post('/api/turn', json={
+                'session_id': session_id, 'target_id': 'gm',
+                'message': '의뢰를 수락하고 열쇠와 주소를 받는다.',
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        generic_turn.assert_not_called()
+        inventory = response.json()['state']['inventory']
+        self.assertIn('코빗 하우스 열쇠', inventory)
+        self.assertIn('코빗 하우스 주소 메모', inventory)
+        self.assertIn('조사 선금 20달러', inventory)
+        self.assertEqual(game.load(session_id)['state']['inventory'], inventory)
+
+    def test_final_report_requires_visit_and_persists_ending(self):
+        sid = self.session['session_id']
+        report = {'session_id': sid, 'target_id': 'client',
+                  'message': '조사를 마치고 집에는 아무 문제가 없다고 의뢰인에게 보고한다.'}
+        response = self.client.post('/api/turn', json=report)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('ending', response.json()['state'])
+        visited = game.load(sid)
+        visited['state']['visited'].append('코빗 하우스 내부')
+        game.save(visited)
+        response = self.client.post('/api/turn', json=report)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['state']['ending'], 'unresolved_report')
+        self.assertIn('엔딩', response.json()['reply'])
+        self.assertEqual(response.json()['suggestions'], [])
+        restored = self.client.get('/api/session/' + sid).json()
+        self.assertEqual(restored['state']['ending'], 'unresolved_report')
+        self.assertEqual(restored['reply'], response.json()['reply'])
+        self.assertEqual(self.client.post('/api/turn', json=report).status_code, 409)
+
     def test_gm_question_reads_only_public_context_and_never_saves(self):
         self.session['history'] = [{'role': 'system', 'content': 'PRIVATE_HISTORY_SENTINEL'}]
         game.save(self.session)

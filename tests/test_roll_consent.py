@@ -74,6 +74,33 @@ class ConsentTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         run.assert_not_called()
 
+    def test_consequence_cannot_be_cancelled_after_approved_failure(self):
+        self.session['state'].update(location='코빗 하우스 지하실', basement_discovery='confrontation')
+        game.save(self.session)
+        sid = self.session['session_id']
+        first = self.client.post('/api/turn', json={'session_id': sid, 'target_id': 'gm',
+                                 'message': '달려드는 인물에게 맞서 싸운다.'}).json()['roll_request']
+        with patch.object(game.secrets, 'randbelow', side_effect=[90, 2]) as draw:
+            failed = self.client.post('/api/roll', json={'session_id': sid, 'request_id': first['id'],
+                                      'confirm': True})
+            self.assertEqual(failed.status_code, 200)
+            damage = failed.json()['roll_request']
+            self.assertTrue(damage['required'])
+            reloaded = self.client.get('/api/session/' + sid).json()
+            self.assertEqual(reloaded['roll_request']['id'], damage['id'])
+            cancelled = self.client.post('/api/roll', json={'session_id': sid, 'request_id': damage['id'],
+                                         'confirm': False})
+            self.assertEqual(cancelled.status_code, 409)
+            self.assertEqual(draw.call_count, 1)
+            applied = self.client.post('/api/roll', json={'session_id': sid, 'request_id': damage['id'],
+                                       'confirm': True})
+            self.assertEqual(applied.status_code, 200)
+            self.assertEqual(applied.json()['state']['hp'], 9)
+            repeated = self.client.post('/api/roll', json={'session_id': sid, 'request_id': damage['id'],
+                                        'confirm': True})
+            self.assertEqual(repeated.status_code, 409)
+            self.assertEqual(draw.call_count, 2)
+
     def test_raw_dice_also_require_confirmation(self):
         message = {'role':'assistant','tool_calls':[{'function':{'name':'roll_dice',
                    'arguments':{'count':2,'sides':6}}}]}

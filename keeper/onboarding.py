@@ -17,6 +17,7 @@ def upgrade_state(state):
     state.setdefault('occupation', '민간 조사자')
     state.setdefault('background', '기이한 사건의 사실관계를 확인하는 조사자. 직업과 수치는 테스트용 설정입니다.')
     state.setdefault('character_source', '간소화 테스트 조사자 · 공식 미리 생성된 조사자 아님')
+    state.setdefault('skills', {}).setdefault('오르기', 20)
     state.setdefault('max_sanity', 99)
     state.setdefault('goal', '주택에 관한 의뢰를 확인하고 자료와 현장을 조사한다.')
     state.setdefault('participants', [{'id': 'client', 'name': '의뢰인', 'role': '주택 조사를 의뢰한 인물',
@@ -25,6 +26,8 @@ def upgrade_state(state):
 
 
 def suggestions(state):
+    if state.get('ending'):
+        return []
     choices = state.get('last_action', {}).get('options', [])
     if isinstance(choices, list) and choices:
         return choices[:3]

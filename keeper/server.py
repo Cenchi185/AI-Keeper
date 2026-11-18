@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from . import rag
-from .agent import MODEL, run_turn, gm_question
+from .agent import final_report_requested, MODEL, run_turn, gm_question
 from .conversation import contacts, select_contact
 from .progress import TurnResolutionError
 from .rolls import confirm_pending, public_rolls
@@ -111,6 +111,8 @@ def turn(body: Turn):
             session = load(body.session_id)
         except KeyError:
             raise HTTPException(404, '저장된 게임이 없습니다.')
+        if session['state'].get('ending'):
+            raise HTTPException(409, '이미 결말을 본 조사입니다. 새 조사를 시작할 수 있습니다.')
         if not body.message.strip():
             raise HTTPException(422, '행동을 입력하세요.')
         if session.get('pending_roll'):
@@ -119,7 +121,7 @@ def turn(body: Turn):
             select_contact(session['state'], body.target_id)
         except ValueError as exc:
             raise HTTPException(409, str(exc))
-        if client_dialogue.applicable(session['state'], body.target_id, body.message):
+        if not final_report_requested(body.message.strip()) and client_dialogue.applicable(session['state'], body.target_id, body.message):
             result = client_dialogue.run(session, body.message.strip(), chat)
         else:
             result = run_turn(session, body.message.strip(), body.target_id)
@@ -148,6 +150,8 @@ def roll_endpoint(body: RollDecision):
         if not pending or pending['request']['id'] != body.request_id:
             raise HTTPException(409, '이미 처리했거나 만료된 판정 요청입니다.')
         if not body.confirm:
+            if pending['request'].get('required'):
+                raise HTTPException(409, '이미 승인한 판정에 따른 피해를 먼저 처리해야 합니다.')
             if pending.get('result'):
                 raise HTTPException(409, '이미 굴린 결과는 취소할 수 없습니다. 같은 결과로 이어서 처리해주세요.')
             session.pop('pending_roll')

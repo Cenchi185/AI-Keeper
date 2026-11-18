@@ -4,7 +4,7 @@ import uuid
 from .game import roll_check, roll_dice
 
 
-def request_roll(session, action, target_id, kind, args, approved):
+def request_roll(session, action, target_id, kind, args, approved, *, required=False):
     state = session['state']
     req = {'id': str(uuid.uuid4()), 'kind': kind, 'args': args}
     if kind == 'skill':
@@ -20,6 +20,8 @@ def request_roll(session, action, target_id, kind, args, approved):
         req.update(count=count, sides=sides)
     else:
         raise ValueError('알 수 없는 판정 종류입니다.')
+    if required:
+        req['required'] = True
     session['pending_roll'] = {'request': req, 'action': action, 'target_id': target_id,
                                'approved': copy.deepcopy(approved)}
     return {'session_id': session['session_id'], 'status': 'awaiting_roll', 'roll_request': req,

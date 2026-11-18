@@ -30,6 +30,8 @@ def speech_issues(messages, state, target_id):
     npc_names = [p['name'] for p in contacts(state) if p['id'] != 'gm']
     for message in messages:
         text = message['text']
+        if re.search(r'physical observations|actual rolls only|selected NPC.s (?:actual words|direct answer)', text, re.I):
+            problems.append('응답에 해설 또는 대사 작성 지시문이 포함됨')
         if message['speaker_id'] == 'gm':
             if re.search(r'["“「][^"”」\n]{8,}["”」]', text):
                 problems.append('GM 해설에 직접 인용 대사가 있음')
